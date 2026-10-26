@@ -463,7 +463,11 @@ impl UsbmuxdConnection {
         self.socket.read_exact(&mut header_buffer).await?;
 
         // We are safe to unwrap as it only panics if the buffer isn't 4
-        let packet_size = u32::from_le_bytes(header_buffer[..4].try_into().unwrap()) - 16;
+        let total_size = u32::from_le_bytes(header_buffer[..4].try_into().unwrap());
+        if !(16..=4 * 1024 * 1024).contains(&total_size) {
+            return Err(IdeviceError::UnexpectedResponse("usbmuxd plist exceeds limit".into()));
+        }
+        let packet_size = total_size - 16;
         debug!("Reading {packet_size} bytes from muxer");
 
         let mut body_buffer = vec![0; packet_size as usize];

@@ -13,7 +13,7 @@ use tracing::debug;
 use crate::{IdeviceError, ReadWrite};
 
 /// Maximum number of redirects to follow before giving up
-const MAX_REDIRECTS: usize = 10;
+const MAX_REDIRECTS: usize = 0;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Method {
@@ -36,6 +36,7 @@ pub struct HttpRequest {
     url: String,
     headers: Vec<(String, String)>,
     body: Vec<u8>,
+    maximum: usize,
 }
 
 impl HttpRequest {
@@ -53,6 +54,7 @@ impl HttpRequest {
             url: url.into(),
             headers: Vec::new(),
             body: Vec::new(),
+            maximum:4*1024*1024,
         }
     }
 
@@ -70,14 +72,16 @@ impl HttpRequest {
     }
 
     /// Sends the request, following redirects, and returns the final response.
+    pub fn maximum_response_bytes(mut self, maximum:usize)->Self {self.maximum=maximum;self}
     pub async fn send(self) -> Result<HttpResponse, IdeviceError> {
+        if self.maximum==0 || self.maximum>64*1024*1024 {return Err(IdeviceError::Http("invalid response limit".into()));}
         let mut method = self.method;
         let mut url = self.url;
         let mut headers = self.headers;
         let mut body = self.body;
 
         for _ in 0..=MAX_REDIRECTS {
-            let resp = send_once(method, &url, &headers, &body).await?;
+            let resp = tokio::time::timeout(std::time::Duration::from_secs(30),send_once(method, &url, &headers, &body,self.maximum)).await.map_err(|_|IdeviceError::Timeout)??;
             match resp.status {
                 301 | 302 | 303 | 307 | 308 => {
                     let Some(location) = resp.header("location") else {
@@ -234,6 +238,7 @@ async fn send_once(
     url: &str,
     headers: &[(String, String)],
     body: &[u8],
+    maximum:usize,
 ) -> Result<HttpResponse, IdeviceError> {
     let parsed = parse_url(url)?;
     debug!("{} {} ({} body bytes)", method.as_str(), url, body.len());
@@ -270,7 +275,7 @@ async fn send_once(
     stream.write_all(&req).await?;
     stream.flush().await?;
 
-    read_response(&mut stream).await
+    read_response(&mut stream,maximum).await
 }
 
 fn push_header(buf: &mut Vec<u8>, name: &str, value: &str) {
@@ -280,15 +285,16 @@ fn push_header(buf: &mut Vec<u8>, name: &str, value: &str) {
     buf.extend_from_slice(b"\r\n");
 }
 
-async fn read_response(stream: &mut Box<dyn ReadWrite>) -> Result<HttpResponse, IdeviceError> {
+async fn read_response(stream: &mut Box<dyn ReadWrite>, maximum:usize) -> Result<HttpResponse, IdeviceError> {
     let mut buf = Vec::new();
 
     // Read until the end of the header block.
     let head_end = loop {
+        if buf.len()>65536 {return Err(IdeviceError::Http("HTTP headers exceed limit".into()));}
         if let Some(pos) = find_subsequence(&buf, b"\r\n\r\n") {
             break pos;
         }
-        if !read_more(stream, &mut buf).await? {
+        if !read_more(stream, &mut buf,maximum+65536).await? {
             return Err(IdeviceError::Http(
                 "connection closed before HTTP headers were complete".into(),
             ));
@@ -310,22 +316,24 @@ async fn read_response(stream: &mut Box<dyn ReadWrite>) -> Result<HttpResponse, 
     let body = if chunked {
         // Connection: close means the peer closes after the final chunk, so read
         // to end-of-stream and decode the complete chunked body.
-        while read_more(stream, &mut buf).await? {}
+        while read_more(stream, &mut buf,maximum+65536).await? {}
         decode_chunked(&buf[body_start..])?
     } else if let Some(len) = content_length {
+        if len>maximum {return Err(IdeviceError::Http("HTTP body exceeds limit".into()));}
         while buf.len() < body_start + len {
-            if !read_more(stream, &mut buf).await? {
-                break; // truncated; return what we have
+            if !read_more(stream, &mut buf,maximum+65536).await? {
+                return Err(IdeviceError::Http("truncated HTTP response".into()));
             }
         }
         let end = (body_start + len).min(buf.len());
         buf[body_start..end].to_vec()
     } else {
         // No framing info: read until the peer closes.
-        while read_more(stream, &mut buf).await? {}
+        while read_more(stream, &mut buf,maximum+65536).await? {}
         buf[body_start..].to_vec()
     };
 
+    if body.len()>maximum {return Err(IdeviceError::Http("HTTP body exceeds limit".into()));}
     Ok(HttpResponse {
         status,
         headers,
@@ -337,12 +345,14 @@ async fn read_response(stream: &mut Box<dyn ReadWrite>) -> Result<HttpResponse, 
 async fn read_more(
     stream: &mut Box<dyn ReadWrite>,
     buf: &mut Vec<u8>,
+    maximum:usize,
 ) -> Result<bool, IdeviceError> {
     let mut tmp = [0u8; 16384];
     let n = stream.read(&mut tmp).await?;
     if n == 0 {
         return Ok(false);
     }
+    if buf.len().saturating_add(n)>maximum {return Err(IdeviceError::Http("HTTP receive buffer exceeds limit".into()));}
     buf.extend_from_slice(&tmp[..n]);
     Ok(true)
 }
@@ -394,7 +404,7 @@ fn decode_chunked(mut data: &[u8]) -> Result<Vec<u8>, IdeviceError> {
         if size == 0 {
             break; // last chunk; ignore any trailers
         }
-        if data.len() < size + 2 {
+        if size > data.len().saturating_sub(2) || data.len()<2 {
             return Err(err());
         }
         out.extend_from_slice(&data[..size]);

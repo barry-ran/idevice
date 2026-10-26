@@ -276,6 +276,8 @@ impl<R: ReadWrite> Http2Client<R> {
                     data_frame.payload.len()
                 );
 
+                let cached:usize=self.cache.values().flat_map(|queue|queue.iter()).map(Vec::len).sum();
+                if cached+data_frame.payload.len()>4*1024*1024 || self.cache.len()>64 { return Err(IdeviceError::UnexpectedResponse("HTTP/2 cache limit".into())); }
                 let len = data_frame.payload.len() as u32;
                 let stream_id = data_frame.stream_id;
                 // Cache the payload BEFORE any await so a cancelled pump (the poll

@@ -35,6 +35,7 @@ impl Frame {
             return Ok(None);
         }
         let frame_len = u32::from_be_bytes([0x00, buf[0], buf[1], buf[2]]) as usize;
+        if frame_len>1024*1024 { return Err(IdeviceError::UnexpectedResponse("HTTP/2 frame limit".into())); }
         let frame_type = buf[3];
         let flags = buf[4];
         let stream_id = u32::from_be_bytes([buf[5], buf[6], buf[7], buf[8]]);

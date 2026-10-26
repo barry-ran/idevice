@@ -17,7 +17,7 @@ mod diagnosticsservice;
 pub mod display_stream;
 mod errors;
 mod file_service;
-#[cfg(feature = "display_stream")]
+#[cfg(any(feature = "display_stream",feature="hid"))]
 pub mod hid;
 mod icon_service;
 mod location_service;
@@ -32,7 +32,7 @@ pub use diagnosticsservice::*;
 pub use display_stream::*;
 pub use errors::CoreDeviceError;
 pub use file_service::*;
-#[cfg(feature = "display_stream")]
+#[cfg(any(feature = "display_stream",feature="hid"))]
 pub use hid::*;
 pub use icon_service::*;
 pub use location_service::*;

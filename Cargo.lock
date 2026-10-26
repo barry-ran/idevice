@@ -1174,7 +1174,7 @@ checksum = "3d3067d79b975e8844ca9eb072e16b31c3c1c36928edf9c6789548c524d0d954"
 
 [[package]]
 name = "idevice"
-version = "0.1.66"
+version = "0.1.66-qm.4"
 dependencies = [
  "aes",
  "async-stream",
@@ -1365,9 +1365,7 @@ dependencies = [
 
 [[package]]
 name = "jktcp"
-version = "0.1.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4d3b9e59938be47d261173086c65a9352fe048951bc502109e7595b70b60cd98"
+version = "0.1.8-qm.1"
 dependencies = [
  "futures",
  "getrandom 0.3.4",

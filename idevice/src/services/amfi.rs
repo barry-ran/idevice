@@ -38,7 +38,7 @@ impl AmfiClient {
         self.idevice.send_plist(request).await?;
 
         let res = self.idevice.read_plist().await?;
-        if res.get("success").is_some() {
+        if res.get("success").and_then(|value|value.as_boolean())==Some(true) {
             Ok(())
         } else {
             Err(IdeviceError::UnexpectedResponse(
@@ -55,7 +55,7 @@ impl AmfiClient {
         self.idevice.send_plist(request).await?;
 
         let res = self.idevice.read_plist().await?;
-        if res.get("success").is_some() {
+        if res.get("success").and_then(|value|value.as_boolean())==Some(true) {
             Ok(())
         } else {
             Err(IdeviceError::UnexpectedResponse(
@@ -72,7 +72,7 @@ impl AmfiClient {
         self.idevice.send_plist(request).await?;
 
         let res = self.idevice.read_plist().await?;
-        if res.get("success").is_some() {
+        if res.get("success").and_then(|value|value.as_boolean())==Some(true) {
             Ok(())
         } else {
             Err(IdeviceError::UnexpectedResponse(

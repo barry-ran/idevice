@@ -244,6 +244,7 @@ impl XPCObject {
             }
             XPCObject::String(item) => {
                 let l = item.len() + 1;
+                if l>4*1024*1024 { return Err(IdeviceError::UnexpectedResponse("XPC field length limit".into())); }
                 let padding = Self::calculate_padding(l);
                 buf.extend_from_slice(&(XPCType::String as u32).to_le_bytes());
                 buf.extend_from_slice(&(l as u32).to_le_bytes());
@@ -253,6 +254,7 @@ impl XPCObject {
             }
             XPCObject::Data(data) => {
                 let l = data.len();
+                if l>4*1024*1024 { return Err(IdeviceError::UnexpectedResponse("XPC field length limit".into())); }
                 let padding = Self::calculate_padding(l);
                 buf.extend_from_slice(&(XPCType::Data as u32).to_le_bytes());
                 buf.extend_from_slice(&(l as u32).to_le_bytes());
@@ -288,12 +290,14 @@ impl XPCObject {
             return Err(XpcError::UnexpectedXpcVersion.into());
         }
 
-        Self::decode_object(&mut Cursor::new(&buf[8..]))
+        Self::decode_object(&mut Cursor::new(&buf[8..]), 0, &mut 16384)
     }
 
-    fn decode_object(mut cursor: &mut Cursor<&[u8]>) -> Result<Self, IdeviceError> {
+    fn decode_object(mut cursor: &mut Cursor<&[u8]>, depth:usize, nodes:&mut usize) -> Result<Self, IdeviceError> {
         let mut buf_32: [u8; 4] = Default::default();
         cursor.read_exact(&mut buf_32)?;
+        if depth>64 || *nodes==0 { return Err(IdeviceError::UnexpectedResponse("XPC nesting limit".into())); }
+        *nodes-=1;
         let xpc_type = u32::from_le_bytes(buf_32);
         let xpc_type: XPCType = xpc_type.try_into()?;
         match xpc_type {
@@ -320,7 +324,7 @@ impl XPCObject {
                     let padding = Self::calculate_padding(key.len() + 1);
 
                     BufRead::consume(&mut cursor, padding);
-                    ret.insert(key, Self::decode_object(cursor)?);
+                    ret.insert(key, Self::decode_object(cursor, depth+1, nodes)?);
                 }
                 Ok(XPCObject::Dictionary(ret))
             }
@@ -332,7 +336,7 @@ impl XPCObject {
 
                 let mut ret = Vec::new();
                 for _i in 0..num_entries {
-                    ret.push(Self::decode_object(cursor)?);
+                    ret.push(Self::decode_object(cursor, depth+1, nodes)?);
                 }
                 Ok(XPCObject::Array(ret))
             }
@@ -365,6 +369,7 @@ impl XPCObject {
                 // 'l' includes utf8 '\0' character.
                 cursor.read_exact(&mut buf_32)?;
                 let l = u32::from_le_bytes(buf_32) as usize;
+                if l>4*1024*1024 || l>cursor.get_ref().len().saturating_sub(cursor.position() as usize) { return Err(IdeviceError::UnexpectedResponse("XPC field length limit".into())); }
                 let padding = Self::calculate_padding(l);
 
                 let mut key_buf = vec![0; l];
@@ -387,6 +392,7 @@ impl XPCObject {
             XPCType::Data => {
                 cursor.read_exact(&mut buf_32)?;
                 let l = u32::from_le_bytes(buf_32) as usize;
+                if l>4*1024*1024 || l>cursor.get_ref().len().saturating_sub(cursor.position() as usize) { return Err(IdeviceError::UnexpectedResponse("XPC field length limit".into())); }
                 let padding = Self::calculate_padding(l);
 
                 let mut data = vec![0; l];
@@ -405,7 +411,7 @@ impl XPCObject {
                 let msg_id = u64::from_le_bytes(id_buf);
 
                 // The next thing in the stream is a full XPC object
-                let inner = Self::decode_object(cursor)?;
+                let inner = Self::decode_object(cursor, depth+1, nodes)?;
                 Ok(XPCObject::FileTransfer {
                     msg_id,
                     data: Box::new(inner),
@@ -511,6 +517,7 @@ impl XPCMessage {
         let body_len = u64::from_le_bytes([
             data[8], data[9], data[10], data[11], data[12], data[13], data[14], data[15],
         ]);
+        if body_len>4*1024*1024 { return Err(IdeviceError::UnexpectedResponse("XPC body length limit".into())); }
         debug!("Body_len: {body_len}");
         let message_id = u64::from_le_bytes([
             data[16], data[17], data[18], data[19], data[20], data[21], data[22], data[23],

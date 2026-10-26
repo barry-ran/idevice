@@ -95,7 +95,9 @@ impl<R: ReadWrite> CdTunnel<R> {
         let mtu = client_params
             .get("mtu")
             .and_then(|m| m.as_u64())
-            .unwrap_or(1500) as u16;
+            .unwrap_or(1500);
+        if !(1280..=16000).contains(&mtu) { return Err(IdeviceError::UnexpectedResponse("Invalid CDTunnel MTU".into())); }
+        let mtu=mtu as u16;
 
         let server_address = response
             .get("serverAddress")
@@ -108,7 +110,9 @@ impl<R: ReadWrite> CdTunnel<R> {
         let server_rsd_port = response
             .get("serverRSDPort")
             .and_then(|p| p.as_u64())
-            .unwrap_or(0) as u16;
+            .unwrap_or(0);
+        if !(1..=65535).contains(&server_rsd_port) { return Err(IdeviceError::UnexpectedResponse("Invalid RSD port".into())); }
+        let server_rsd_port=server_rsd_port as u16;
 
         let info = TunnelInfo {
             client_address,

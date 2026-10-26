@@ -125,7 +125,9 @@ impl<R: ReadWrite> RemoteXpcClient<R> {
                 }
             }
             let (channel, chunk) = self.h2_client.read_any(&CHANNELS).await?;
-            self.partial.entry(channel).or_default().extend(chunk);
+            let buf=self.partial.entry(channel).or_default();
+            if buf.len()+chunk.len()>4*1024*1024 { return Err(IdeviceError::UnexpectedResponse("XPC assembly limit".into())); }
+            buf.extend(chunk);
         }
     }
 
@@ -167,7 +169,9 @@ impl<R: ReadWrite> RemoteXpcClient<R> {
                 },
                 None => {
                     let chunk = self.h2_client.read(channel).await?;
-                    self.partial.entry(channel).or_default().extend(chunk);
+                    let buf=self.partial.entry(channel).or_default();
+            if buf.len()+chunk.len()>4*1024*1024 { return Err(IdeviceError::UnexpectedResponse("XPC assembly limit".into())); }
+            buf.extend(chunk);
                 }
             }
         }

@@ -69,21 +69,18 @@ impl TSSRequest {
     /// let response = request.send().await?;
     /// ```
     pub async fn send(&self) -> Result<plist::Value, IdeviceError> {
-        debug!(
-            "Sending TSS request: {}",
-            crate::pretty_print_dictionary(&self.inner)
-        );
-        // The TSS controller is plain HTTP, so no TLS/crypto provider is needed.
-        let res = crate::http::HttpRequest::post(TSS_CONTROLLER_ACTION_URL)
+        let response = crate::http::HttpRequest::post(TSS_CONTROLLER_ACTION_URL)
             .header("Cache-Control", "no-cache")
             .header("Content-type", "text/xml; charset=\"utf-8\"")
             .header("User-Agent", "InetURL/1.0")
-            .body(plist_to_xml_bytes(&self.inner))
-            .send()
-            .await?
-            .text();
-
-        debug!("Apple responded with {res}");
+            .body(self.to_bytes()).send().await?;
+        if response.status!=200 {return Err(IdeviceError::Http(format!("TSS HTTP status {}",response.status)));}
+        Self::decode_response(&response.body)
+    }
+    pub fn to_bytes(&self)->Vec<u8>{plist_to_xml_bytes(&self.inner)}
+    pub fn decode_response(bytes:&[u8])->Result<plist::Value,IdeviceError>{
+        if bytes.len()>4*1024*1024 {return Err(IdeviceError::Http("TSS response exceeds limit".into()));}
+        let res=String::from_utf8_lossy(bytes).into_owned();
         let trimmed = res.trim_start_matches("STATUS=0&");
         let trimmed = trimmed.trim_start_matches("MESSAGE=");
         if !trimmed.starts_with("SUCCESS") {

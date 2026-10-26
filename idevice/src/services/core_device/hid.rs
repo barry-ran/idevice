@@ -286,6 +286,7 @@ impl crate::RsdService for IndigoHidClient<Box<dyn ReadWrite>> {
 }
 
 impl<R: ReadWrite> IndigoHidClient<R> {
+    pub async fn next_message(&mut self)->Result<plist::Value,IdeviceError>{self.inner.recv_any().await}
     pub fn new(inner: RemoteXpcClient<R>) -> Self {
         Self { inner }
     }
@@ -486,6 +487,7 @@ pub struct HidSurface {
 #[derive(Debug)]
 pub struct UniversalHidServiceClient<R: ReadWrite> {
     inner: RemoteXpcClient<R>,
+    feature: Cow<'static,str>,
 }
 
 #[cfg(feature = "rsd")]
@@ -497,24 +499,26 @@ impl crate::RsdService for UniversalHidServiceClient<Box<dyn ReadWrite>> {
     async fn from_stream(stream: Box<dyn ReadWrite>) -> Result<Self, IdeviceError> {
         let mut inner = RemoteXpcClient::new(stream).await?;
         inner.do_handshake().await?;
-        Ok(Self { inner })
+        Ok(Self::new(inner))
     }
 }
 
 impl<R: ReadWrite> UniversalHidServiceClient<R> {
     pub fn new(inner: RemoteXpcClient<R>) -> Self {
-        Self { inner }
+        Self::new_named(inner,obf!("com.apple.coredevice.feature.remote.universalhidservice"))
     }
+
+    pub fn new_named(inner:RemoteXpcClient<R>,feature:Cow<'static,str>)->Self{Self{inner,feature}}
+    pub async fn next_message(&mut self)->Result<plist::Value,IdeviceError>{self.inner.recv_any().await}
 
     /// Build the `{featureIdentifier, messageType: "Request", payload}` envelope
     /// these requests share.
-    fn request(payload: Dictionary) -> Dictionary {
+    fn request(&self,payload: Dictionary) -> Dictionary {
         let mut msg = Dictionary::new();
-        let universal_hid_feature: Cow<'static, str> =
-            obf!("com.apple.coredevice.feature.remote.universalhidservice");
+
         msg.insert(
             "featureIdentifier".into(),
-            XPCObject::String(universal_hid_feature.into()),
+            XPCObject::String(self.feature.to_string()),
         );
         msg.insert("messageType".into(), XPCObject::String("Request".into()));
         msg.insert("payload".into(), XPCObject::Dictionary(payload));
@@ -528,7 +532,7 @@ impl<R: ReadWrite> UniversalHidServiceClient<R> {
             "connectedServices".into(),
             XPCObject::Dictionary(Dictionary::new()),
         );
-        let msg = Self::request(payload);
+        let msg = self.request(payload);
         self.inner.send_object(msg, true).await?;
         let res = self.inner.recv().await?;
 
@@ -556,7 +560,7 @@ impl<R: ReadWrite> UniversalHidServiceClient<R> {
         .to_dictionary()
         .unwrap();
 
-        let msg = Self::request(payload);
+        let msg = self.request(payload);
         self.inner.send_object(msg, false).await
     }
 

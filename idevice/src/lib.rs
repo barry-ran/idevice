@@ -513,6 +513,7 @@ impl Idevice {
     /// # Errors
     /// Returns `IdeviceError` if reading fails or connection is closed prematurely
     pub async fn read_raw(&mut self, len: usize) -> Result<Vec<u8>, IdeviceError> {
+        if len > 8 * 1024 * 1024 { return Err(IdeviceError::UnexpectedResponse("raw read exceeds limit".into())); }
         if let Some(socket) = &mut self.socket {
             let mut buf = vec![0; len];
             socket.read_exact(&mut buf).await?;
@@ -533,6 +534,7 @@ impl Idevice {
     /// # Errors
     /// Returns `IdeviceError` if reading fails
     pub async fn read_any(&mut self, max_size: u32) -> Result<Vec<u8>, IdeviceError> {
+        if max_size > 8 * 1024 * 1024 { return Err(IdeviceError::UnexpectedResponse("raw read exceeds limit".into())); }
         if let Some(socket) = &mut self.socket {
             let mut buf = vec![0; max_size as usize];
             let len = socket.read(&mut buf).await?;
@@ -592,6 +594,9 @@ impl Idevice {
             let mut buf = [0u8; 4];
             socket.read_exact(&mut buf).await?;
             let len = u32::from_be_bytes(buf);
+            if len == 0 || len > 4 * 1024 * 1024 {
+                return Err(IdeviceError::UnexpectedResponse("device plist exceeds limit".into()));
+            }
             let mut buf = vec![0; len as usize];
             socket.read_exact(&mut buf).await?;
             let res: plist::Value = plist::from_bytes(&buf)?;
