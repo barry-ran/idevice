@@ -89,12 +89,21 @@ impl<R: ReadWrite> RemoteXpcClient<R> {
     ///
     /// Send this only on the RSD/remoted control connection
     pub async fn send_device_handshake(&mut self) -> Result<(), IdeviceError> {
+        self.send_device_handshake_with_uuid(uuid::Uuid::new_v4())
+            .await
+    }
+
+    /// Keep this identity stable across RSD refreshes on the same host.
+    pub async fn send_device_handshake_with_uuid(
+        &mut self,
+        peer_uuid: uuid::Uuid,
+    ) -> Result<(), IdeviceError> {
         const REMOTE_XPC_VERSION_FLAGS: u64 = 0x0100_0000_0000_0006;
 
         let msg = xpc!({
             "MessageType": "Handshake",
             "MessagingProtocolVersion": 7u64,
-            "UUID": uuid::Uuid::new_v4(),
+            "UUID": peer_uuid,
             "Properties": {
                 "RemoteXPCVersionFlags": REMOTE_XPC_VERSION_FLAGS,
                 "SensitivePropertiesVisible": true,

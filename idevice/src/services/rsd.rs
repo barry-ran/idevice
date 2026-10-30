@@ -33,9 +33,17 @@ pub struct RsdHandshake {
 
 impl RsdHandshake {
     pub async fn new(socket: impl ReadWrite) -> Result<Self, IdeviceError> {
+        Self::new_with_uuid(socket, uuid::Uuid::new_v4()).await
+    }
+
+    /// RSD refreshes must use the same peer UUID or remoted invalidates service ports.
+    pub async fn new_with_uuid(
+        socket: impl ReadWrite,
+        peer_uuid: uuid::Uuid,
+    ) -> Result<Self, IdeviceError> {
         let mut xpc_client = RemoteXpcClient::new(socket).await?;
         xpc_client.do_handshake().await?;
-        xpc_client.send_device_handshake().await?;
+        xpc_client.send_device_handshake_with_uuid(peer_uuid).await?;
         let data = xpc_client.recv_root().await?;
 
         let services_dict = match data
